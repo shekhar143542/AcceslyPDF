@@ -5,7 +5,11 @@ import { useTheme } from '@/contexts/ThemeContext';
 import { UserButton } from '@clerk/nextjs';
 import UploadModal from './UploadModal';
 
-export default function Header() {
+interface HeaderProps {
+  onUploadSuccess?: () => void;
+}
+
+export default function Header({ onUploadSuccess }: HeaderProps = {}) {
   const { theme, toggleTheme } = useTheme();
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
@@ -74,7 +78,8 @@ export default function Header() {
       {/* Upload Modal */}
       <UploadModal 
         isOpen={isUploadModalOpen} 
-        onClose={() => setIsUploadModalOpen(false)} 
+        onClose={() => setIsUploadModalOpen(false)}
+        onUploadSuccess={onUploadSuccess}
       />
     </>
   );

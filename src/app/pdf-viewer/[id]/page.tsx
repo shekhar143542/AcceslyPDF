@@ -1,17 +1,53 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Download, ZoomIn, ZoomOut, ChevronLeft, ChevronRight } from 'lucide-react';
 import AIAssistant from '@/components/AIAssistant';
+import PDFViewer from '@/components/PDFViewer';
 
 export default function PDFViewerPage() {
   const params = useParams();
   const router = useRouter();
   const [currentPage, setCurrentPage] = useState(1);
-  const [zoom, setZoom] = useState(50);
-  const totalPages = 5;
-  const documentName = 'Annual Report 2024.pdf';
+  const [totalPages, setTotalPages] = useState(0);
+  const [zoom, setZoom] = useState(100);
+  const [documentName, setDocumentName] = useState('Loading...');
+  const [fileUrl, setFileUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Fetch PDF metadata from API
+  useEffect(() => {
+    const fetchPDFData = async () => {
+      try {
+        const pdfId = params.id as string;
+        console.log('📄 Fetching PDF data for ID:', pdfId);
+
+        const response = await fetch(`/api/pdf/${pdfId}`);
+        const result = await response.json();
+
+        if (result.success && result.data) {
+          setDocumentName(result.data.fileName);
+          setFileUrl(result.data.fileUrl);
+          console.log('✅ PDF data loaded:', result.data);
+        } else {
+          console.error('❌ Failed to fetch PDF data:', result.error);
+          alert('Failed to load PDF. Please try again.');
+          router.push('/dashboard');
+        }
+      } catch (error) {
+        console.error('❌ Error fetching PDF:', error);
+        alert('Failed to load PDF. Please try again.');
+        router.push('/dashboard');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (params.id) {
+      fetchPDFData();
+    }
+  }, [params.id, router]);
 
   const handleZoomIn = () => {
     if (zoom < 200) setZoom(prev => Math.min(prev + 25, 200));
@@ -22,11 +58,38 @@ export default function PDFViewerPage() {
   };
 
   const handlePrevPage = () => {
-    if (currentPage > 1) setCurrentPage(prev => prev - 1);
+    if (currentPage > 1) {
+      setCurrentPage(prev => prev - 1);
+      // TODO: Scroll to page
+    }
   };
 
   const handleNextPage = () => {
-    if (currentPage < totalPages) setCurrentPage(prev => prev + 1);
+    if (currentPage < totalPages) {
+      setCurrentPage(prev => prev + 1);
+      // TODO: Scroll to page
+    }
+  };
+
+  const handleDownload = () => {
+    if (fileUrl) {
+      window.open(fileUrl, '_blank');
+    }
+  };
+
+  const handlePageChange = (page: number, total: number) => {
+    setCurrentPage(page);
+    setTotalPages(total);
+  };
+
+  const handleLoadSuccess = (total: number) => {
+    setTotalPages(total);
+    console.log(`✅ PDF loaded with ${total} pages`);
+  };
+
+  const handleLoadError = (error: Error) => {
+    console.error('❌ PDF load error:', error);
+    alert(`Failed to load PDF: ${error.message}`);
   };
 
   return (
@@ -44,7 +107,9 @@ export default function PDFViewerPage() {
           <div className="h-6 w-px bg-gray-300 dark:bg-slate-700" />
           <div>
             <h1 className="text-gray-900 dark:text-white font-semibold text-lg">{documentName}</h1>
-            <p className="text-gray-500 dark:text-gray-400 text-sm">Page {currentPage} of {totalPages}</p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
+              {totalPages > 0 ? `Page ${currentPage} of ${totalPages}` : 'Loading...'}
+            </p>
           </div>
         </div>
 
@@ -93,7 +158,11 @@ export default function PDFViewerPage() {
           </div>
 
           {/* Download Button */}
-          <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-sm">
+          <button 
+            onClick={handleDownload}
+            disabled={!fileUrl}
+            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          >
             <Download className="w-5 h-5" />
             <span className="font-medium">Download</span>
           </button>
@@ -104,19 +173,11 @@ export default function PDFViewerPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* PDF Viewer Section */}
         <div className="flex-1 overflow-auto bg-gray-100 dark:bg-slate-900 p-6 transition-colors duration-300">
-          <div className="flex justify-center">
-            <div 
-              className="bg-white dark:bg-slate-900 shadow-2xl rounded-lg overflow-hidden border border-gray-200 dark:border-slate-800 transition-colors duration-300"
-              style={{ 
-                width: `${zoom}%`,
-                minWidth: '400px',
-                maxWidth: '1200px'
-              }}
-            >
-              {/* PDF Preview Placeholder */}
-              <div className="aspect-[8.5/11] flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 border-2 border-dashed border-gray-300 dark:border-slate-800 bg-gray-50 dark:bg-slate-900 transition-colors duration-300">
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
                 <svg 
-                  className="w-24 h-24 mb-4 text-gray-300" 
+                  className="w-16 h-16 mb-4 text-blue-600 dark:text-blue-400 animate-spin mx-auto" 
                   fill="none" 
                   stroke="currentColor" 
                   viewBox="0 0 24 24"
@@ -124,15 +185,41 @@ export default function PDFViewerPage() {
                   <path 
                     strokeLinecap="round" 
                     strokeLinejoin="round" 
-                    strokeWidth={1.5} 
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" 
+                    strokeWidth={2} 
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
                   />
                 </svg>
-                <h3 className="text-xl font-medium text-gray-600 mb-2">PDF Preview</h3>
-                <p className="text-sm text-gray-500">In production, PDF.js will render the actual document here</p>
+                <p className="text-gray-600 dark:text-gray-400">Loading PDF...</p>
               </div>
             </div>
-          </div>
+          ) : fileUrl ? (
+            <PDFViewer
+              fileUrl={fileUrl}
+              zoom={zoom}
+              onPageChange={handlePageChange}
+              onLoadSuccess={handleLoadSuccess}
+              onLoadError={handleLoadError}
+            />
+          ) : (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <svg 
+                  className="w-16 h-16 mb-4 text-red-500 mx-auto" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  viewBox="0 0 24 24"
+                >
+                  <path 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round" 
+                    strokeWidth={2} 
+                    d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" 
+                  />
+                </svg>
+                <p className="text-red-600 dark:text-red-400">Failed to load PDF</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* AI Assistant Panel */}

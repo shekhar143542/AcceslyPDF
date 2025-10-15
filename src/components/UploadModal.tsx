@@ -6,9 +6,10 @@ import { useRouter } from 'next/navigation';
 interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onUploadSuccess?: () => void; // Callback to refresh dashboard
 }
 
-export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
+export default function UploadModal({ isOpen, onClose, onUploadSuccess }: UploadModalProps) {
   const router = useRouter();
   const [dragActive, setDragActive] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -55,20 +56,7 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
 
   const handleFile = (file: File) => {
     setUploadedFile(file);
-    setIsUploading(true);
-    setUploadProgress(0);
-
-    // Simulate upload progress
-    const interval = setInterval(() => {
-      setUploadProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsUploading(false);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 200);
+    // Don't start uploading automatically - wait for user to click button
   };
 
   const handleRemoveFile = () => {
@@ -78,23 +66,102 @@ export default function UploadModal({ isOpen, onClose }: UploadModalProps) {
     setUploadProgress(0);
   };
 
-  const handleUploadAndAnalyze = () => {
-    if (uploadedFile && !isAnalyzing) {
+  const handleUploadAndAnalyze = async () => {
+    if (!uploadedFile || isUploading || isAnalyzing) return;
+
+    try {
+      setIsUploading(true);
       setIsAnalyzing(true);
+      setUploadProgress(0);
+
+      // Create FormData and append the file
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+
+      console.log('📤 Uploading file:', uploadedFile.name);
+
+      // Use XMLHttpRequest to track upload progress
+      const xhr = new XMLHttpRequest();
+
+      // Track upload progress
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          const percentComplete = Math.round((e.loaded / e.total) * 100);
+          setUploadProgress(percentComplete);
+          console.log(`📊 Upload progress: ${percentComplete}%`);
+        }
+      });
+
+      // Handle completion
+      const uploadPromise = new Promise<any>((resolve, reject) => {
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try {
+              const result = JSON.parse(xhr.responseText);
+              resolve(result);
+            } catch (error) {
+              reject(new Error('Invalid response from server'));
+            }
+          } else {
+            try {
+              const result = JSON.parse(xhr.responseText);
+              reject(new Error(result.error || 'Upload failed'));
+            } catch {
+              reject(new Error(`Upload failed with status ${xhr.status}`));
+            }
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Network error during upload'));
+        });
+
+        xhr.addEventListener('abort', () => {
+          reject(new Error('Upload cancelled'));
+        });
+      });
+
+      // Send the request
+      xhr.open('POST', '/api/upload');
+      xhr.send(formData);
+
+      // Wait for upload to complete
+      const result = await uploadPromise;
+
+      if (!result.success) {
+        throw new Error(result.error || 'Upload failed');
+      }
+
+      console.log('✅ Upload successful:', result.data);
       
-      // Simulate analysis process
-      setTimeout(() => {
-        setIsAnalyzing(false);
-        // Navigate to PDF viewer page
-        router.push('/pdf-viewer/1'); // Using '1' as a sample ID
-        // Close modal
-        onClose();
-        // Reset state
-        setUploadedFile(null);
-        setIsUploading(false);
-        setIsAnalyzing(false);
-        setUploadProgress(0);
-      }, 2000); // 2 second analysis simulation
+      // Ensure progress shows 100%
+      setUploadProgress(100);
+
+      // Wait a moment to show 100% progress
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      // Close modal and reset state
+      onClose();
+      setUploadedFile(null);
+      setIsUploading(false);
+      setIsAnalyzing(false);
+      setUploadProgress(0);
+
+      // Trigger dashboard refresh callback
+      if (onUploadSuccess) {
+        onUploadSuccess();
+      }
+      
+      // Also refresh router
+      router.refresh();
+      
+    } catch (error) {
+      console.error('❌ Upload error:', error);
+      alert(`❌ Upload failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      setIsUploading(false);
+      setIsAnalyzing(false);
+      setUploadProgress(0);
     }
   };
 

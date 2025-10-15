@@ -1,0 +1,347 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+
+interface PDFViewerProps {
+  fileUrl: string;
+  zoom?: number;
+  onPageChange?: (currentPage: number, totalPages: number) => void;
+  onLoadSuccess?: (totalPages: number) => void;
+  onLoadError?: (error: Error) => void;
+}
+
+/**
+ * PDFViewer Component - Client-Side Only
+ * Renders PDF files using PDF.js library with full page support
+ * 
+ * Features:
+ * - Client-side only rendering (no SSR issues)
+ * - Dynamic import of PDF.js to avoid DOMMatrix errors
+ * - Displays all pages vertically in a scrollable container
+ * - Responsive zoom support
+ * - Loading state with spinner
+ * - Error handling
+ * - Optimized rendering with canvas
+ */
+export default function PDFViewer({ 
+  fileUrl, 
+  zoom = 100, 
+  onPageChange,
+  onLoadSuccess,
+  onLoadError 
+}: PDFViewerProps) {
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [numPages, setNumPages] = useState(0);
+  const [renderedPages, setRenderedPages] = useState<Set<number>>(new Set());
+  const [isMounted, setIsMounted] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const pdfDocRef = useRef<any>(null);
+  const canvasRefs = useRef<Map<number, HTMLCanvasElement>>(new Map());
+  const pdfjsLibRef = useRef<any>(null);
+
+  // Mount check - only render on client
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  /**
+   * Load PDF.js library and configure worker - CLIENT SIDE ONLY
+   */
+  useEffect(() => {
+    if (!isMounted || !fileUrl) return;
+
+    let isCancelled = false;
+
+    const loadPDFJS = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        console.log('📦 Loading PDF.js library...');
+
+        // Dynamically import PDF.js - runs only in browser
+        const pdfjs = await import('pdfjs-dist');
+        pdfjsLibRef.current = pdfjs;
+
+        // Configure worker - use local worker file from public directory
+        if (typeof window !== 'undefined') {
+          // Point to the worker file in public directory
+          pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+          console.log('✅ PDF.js worker configured from /pdf.worker.min.mjs');
+        }
+
+        if (isCancelled) return;
+
+        console.log('�📄 Loading PDF:', fileUrl);
+
+        // Load the PDF document
+        const loadingTask = pdfjs.getDocument(fileUrl);
+        const pdf = await loadingTask.promise;
+
+        if (isCancelled) return;
+
+        pdfDocRef.current = pdf;
+        const totalPages = pdf.numPages;
+        setNumPages(totalPages);
+
+        console.log(`✅ PDF loaded successfully. Total pages: ${totalPages}`);
+
+        // Notify parent component
+        if (onLoadSuccess) {
+          onLoadSuccess(totalPages);
+        }
+
+        setIsLoading(false);
+
+        // Render all pages
+        await renderAllPages(pdf, totalPages, pdfjs);
+
+      } catch (err) {
+        if (isCancelled) return;
+
+        console.error('❌ Error loading PDF:', err);
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load PDF';
+        setError(errorMessage);
+        setIsLoading(false);
+
+        if (onLoadError) {
+          onLoadError(err instanceof Error ? err : new Error(errorMessage));
+        }
+      }
+    };
+
+    loadPDFJS();
+
+    // Cleanup
+    return () => {
+      isCancelled = true;
+      if (pdfDocRef.current) {
+        pdfDocRef.current.destroy();
+      }
+    };
+  }, [fileUrl, isMounted]);
+
+  /**
+   * Re-render pages when zoom changes
+   */
+  useEffect(() => {
+    if (pdfDocRef.current && numPages > 0 && pdfjsLibRef.current && isMounted) {
+      renderAllPages(pdfDocRef.current, numPages, pdfjsLibRef.current);
+    }
+  }, [zoom, numPages, isMounted]);
+
+  /**
+   * Render all PDF pages to canvas elements
+   */
+  const renderAllPages = async (pdf: any, totalPages: number, pdfjs: any) => {
+    if (!isMounted) return;
+    
+    const newRenderedPages = new Set<number>();
+
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+      try {
+        await renderPage(pdf, pageNum, pdfjs);
+        newRenderedPages.add(pageNum);
+      } catch (err) {
+        console.error(`Error rendering page ${pageNum}:`, err);
+      }
+    }
+
+    setRenderedPages(newRenderedPages);
+  };
+
+  /**
+   * Render a single page
+   */
+  const renderPage = async (pdf: any, pageNum: number, pdfjs: any) => {
+    if (!isMounted) return;
+
+    try {
+      const page = await pdf.getPage(pageNum);
+      const canvas = canvasRefs.current.get(pageNum);
+
+      if (!canvas) return;
+
+      const context = canvas.getContext('2d');
+      if (!context) return;
+
+      // Calculate scale based on zoom
+      const container = containerRef.current;
+      if (!container) return;
+
+      const containerWidth = container.clientWidth;
+      const viewport = page.getViewport({ scale: 1 });
+      
+      // Calculate scale to fit container width, then apply zoom
+      const baseScale = (containerWidth * 0.9) / viewport.width;
+      const scale = baseScale * (zoom / 100);
+      
+      const scaledViewport = page.getViewport({ scale });
+
+      // Set canvas dimensions
+      canvas.width = scaledViewport.width;
+      canvas.height = scaledViewport.height;
+      canvas.style.width = '100%';
+      canvas.style.height = 'auto';
+
+      // Render PDF page
+      const renderContext = {
+        canvasContext: context,
+        viewport: scaledViewport,
+      };
+
+      await page.render(renderContext).promise;
+      console.log(`✅ Rendered page ${pageNum}`);
+
+    } catch (err) {
+      console.error(`Error rendering page ${pageNum}:`, err);
+      throw err;
+    }
+  };
+
+  /**
+   * Track visible page for page change callback
+   */
+  useEffect(() => {
+    if (!containerRef.current || numPages === 0 || !isMounted) return;
+
+    const handleScroll = () => {
+      const container = containerRef.current;
+      if (!container) return;
+
+      const canvases = Array.from(canvasRefs.current.values());
+
+      for (let i = 0; i < canvases.length; i++) {
+        const canvas = canvases[i];
+        const rect = canvas.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+
+        if (rect.top <= containerRect.top + containerRect.height / 2 &&
+            rect.bottom >= containerRect.top + containerRect.height / 2) {
+          if (onPageChange) {
+            onPageChange(i + 1, numPages);
+          }
+          break;
+        }
+      }
+    };
+
+    const container = containerRef.current;
+    container.addEventListener('scroll', handleScroll);
+
+    return () => {
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, [numPages, onPageChange, isMounted]);
+
+  // Don't render on server
+  if (!isMounted) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[600px] bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 shadow-lg transition-colors duration-300">
+        <div className="text-center">
+          <p className="text-gray-600 dark:text-gray-400">Initializing PDF viewer...</p>
+        </div>
+      </div>
+    );
+  }
+
+  /**
+   * Loading State
+   */
+  if (isLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[600px] bg-white dark:bg-slate-900 rounded-lg border border-gray-200 dark:border-slate-800 shadow-lg transition-colors duration-300">
+        <svg 
+          className="w-16 h-16 mb-4 text-blue-600 dark:text-blue-400 animate-spin" 
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" 
+          />
+        </svg>
+        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+          Loading PDF...
+        </h3>
+        <p className="text-sm text-gray-500 dark:text-gray-400">
+          Please wait while we prepare your document
+        </p>
+      </div>
+    );
+  }
+
+  /**
+   * Error State
+   */
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[600px] bg-white dark:bg-slate-900 rounded-lg border border-red-200 dark:border-red-900 shadow-lg transition-colors duration-300">
+        <svg 
+          className="w-16 h-16 mb-4 text-red-500" 
+          fill="none" 
+          stroke="currentColor" 
+          viewBox="0 0 24 24"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" 
+          />
+        </svg>
+        <h3 className="text-lg font-medium text-red-600 dark:text-red-400 mb-2">
+          Failed to Load PDF
+        </h3>
+        <p className="text-sm text-gray-600 dark:text-gray-400 text-center max-w-md px-4">
+          {error}
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-500 mt-2">
+          Please try refreshing the page
+        </p>
+      </div>
+    );
+  }
+
+  /**
+   * PDF Viewer
+   */
+  return (
+    <div 
+      ref={containerRef}
+      className="w-full h-full overflow-auto bg-gray-100 dark:bg-slate-900 transition-colors duration-300"
+      style={{
+        scrollBehavior: 'smooth',
+      }}
+    >
+      <div className="flex flex-col items-center gap-4 py-6">
+        {Array.from({ length: numPages }, (_, i) => i + 1).map((pageNum) => (
+          <div 
+            key={pageNum}
+            className="bg-white dark:bg-slate-800 shadow-lg rounded-lg overflow-hidden border border-gray-200 dark:border-slate-700 transition-colors duration-300"
+            style={{
+              maxWidth: '100%',
+            }}
+          >
+            <canvas
+              ref={(el) => {
+                if (el) {
+                  canvasRefs.current.set(pageNum, el);
+                }
+              }}
+              className="block w-full h-auto"
+            />
+            <div className="px-4 py-2 bg-gray-50 dark:bg-slate-900 border-t border-gray-200 dark:border-slate-700">
+              <p className="text-xs text-gray-500 dark:text-gray-400 text-center">
+                Page {pageNum} of {numPages}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}

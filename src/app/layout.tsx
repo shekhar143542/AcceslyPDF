@@ -3,6 +3,7 @@ import { ClerkProvider, SignedIn, SignedOut, SignInButton, SignUpButton, UserBut
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { Toaster } from "sonner";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -40,16 +41,15 @@ export default function RootLayout({
           className={`${geistSans.variable} ${geistMono.variable} antialiased transition-colors duration-300 bg-white text-gray-900 dark:bg-slate-900 dark:text-slate-100`}
         >
           <ThemeProvider>
-            <header>
-              <SignedOut>
-                <SignInButton />
-                <SignUpButton />
-              </SignedOut>
-              <SignedIn>
-                <UserButton />
-              </SignedIn>
-            </header>
             {children}
+            {/* Toast notifications */}
+            <Toaster 
+              position="top-right" 
+              expand={false}
+              richColors
+              closeButton
+              theme="system"
+            />
           </ThemeProvider>
         </body>
       </html>

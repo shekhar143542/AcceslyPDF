@@ -1,7 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Eye, Download, Trash2, FileText } from 'lucide-react';
+import { toast } from 'sonner';
+import DeleteConfirmDialog from './DeleteConfirmDialog';
 
 interface PDFDocument {
   id: string;
@@ -14,10 +17,13 @@ interface PDFDocument {
 
 interface PDFCardProps {
   document: PDFDocument;
+  onDelete?: (id: string) => void; // Callback when PDF is deleted
 }
 
-export default function PDFCard({ document }: PDFCardProps) {
+export default function PDFCard({ document, onDelete }: PDFCardProps) {
   const router = useRouter();
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   
   // Get badge styling based on score
   const getBadgeStyle = (score: number) => {
@@ -42,9 +48,103 @@ export default function PDFCard({ document }: PDFCardProps) {
     // Implement download logic
   };
 
-  const handleDelete = () => {
-    console.log('Delete:', document.filename);
-    // Implement delete logic
+  /**
+   * Show delete confirmation dialog
+   */
+  const handleDeleteClick = () => {
+    setShowDeleteDialog(true);
+  };
+
+  /**
+   * Handle confirmed deletion
+   * Steps:
+   * 1. Show loading state
+   * 2. Call DELETE API with PDF ID
+   * 3. API verifies user authorization via Clerk
+   * 4. API deletes file from Supabase Storage
+   * 5. API deletes metadata from Neon DB
+   * 6. Update UI by calling parent's onDelete callback
+   * 7. Show success toast
+   */
+  const handleConfirmDelete = async () => {
+    setShowDeleteDialog(false);
+    
+    try {
+      setIsDeleting(true);
+      console.log('🗑️ Deleting PDF:', document.filename);
+
+      // Show loading toast
+      const loadingToast = toast.loading('Deleting PDF...');
+
+      // Call delete API endpoint
+      // API will:
+      // - Verify user authentication with Clerk
+      // - Check user owns this PDF
+      // - Delete file from Supabase Storage bucket
+      // - Delete metadata record from Neon DB
+      const response = await fetch(`/api/pdf/${document.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const result = await response.json();
+
+      // Dismiss loading toast
+      toast.dismiss(loadingToast);
+
+      // Handle error responses
+      if (!response.ok || !result.success) {
+        // Handle specific error cases
+        if (response.status === 401) {
+          toast.error('Unauthorized', {
+            description: 'Please sign in to delete PDFs',
+          });
+        } else if (response.status === 404) {
+          toast.error('PDF not found', {
+            description: 'This PDF may have already been deleted',
+          });
+        } else {
+          toast.error('Failed to delete PDF', {
+            description: result.error || 'An unexpected error occurred',
+          });
+        }
+        throw new Error(result.error || 'Delete failed');
+      }
+
+      console.log('✅ PDF deleted successfully:', document.filename);
+
+      // Show success toast
+      toast.success('PDF deleted successfully', {
+        description: `"${document.filename}" has been removed`,
+      });
+
+      // Call parent's onDelete callback to update UI
+      // This will remove the card from the dashboard without page reload
+      if (onDelete) {
+        onDelete(document.id);
+      }
+
+    } catch (error) {
+      console.error('❌ Delete error:', error);
+      
+      // Only show error toast if we haven't already shown one
+      if (error instanceof Error && !error.message.includes('Failed to delete')) {
+        toast.error('Failed to delete PDF', {
+          description: error.message || 'An unexpected error occurred. Please try again.',
+        });
+      }
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  /**
+   * Handle dialog cancel
+   */
+  const handleCancelDelete = () => {
+    setShowDeleteDialog(false);
   };
 
   return (
@@ -93,13 +193,32 @@ export default function PDFCard({ document }: PDFCardProps) {
         </button>
 
         <button
-          onClick={handleDelete}
-          className="flex items-center space-x-1 text-gray-600 dark:text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
-          title="Delete"
+          onClick={handleDeleteClick}
+          disabled={isDeleting}
+          className={`flex items-center space-x-1 transition-colors cursor-pointer ${
+            isDeleting
+              ? 'text-gray-400 dark:text-gray-600 cursor-not-allowed'
+              : 'text-gray-600 dark:text-gray-400 hover:text-red-500'
+          }`}
+          title={isDeleting ? 'Deleting...' : 'Delete'}
         >
-          <Trash2 className="w-4 h-4" />
+          {isDeleting ? (
+            <svg className="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          ) : (
+            <Trash2 className="w-4 h-4" />
+          )}
         </button>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <DeleteConfirmDialog
+        isOpen={showDeleteDialog}
+        fileName={document.filename}
+        onConfirm={handleConfirmDelete}
+        onCancel={handleCancelDelete}
+      />
     </div>
   );
 }
