@@ -33,10 +33,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { db } from '@/db';
 import { pdfs } from '@/db/schema';
+import { eq, desc } from 'drizzle-orm';
 import {
   uploadFileToSupabase,
   generateFilePath,
   validateFile,
+  getSignedUrl,
+  supabaseAdmin,
+  STORAGE_BUCKET,
 } from '@/lib/supabase';
 
 // ==========================================
@@ -180,7 +184,89 @@ export async function POST(request: NextRequest) {
       console.log(`✅ Metadata saved to database with ID: ${newPdf.id}`);
 
       // ========================================
-      // STEP 9: RETURN SUCCESS RESPONSE
+      // STEP 9: TRIGGER PREP ANALYSIS (CORRECT API)
+      // ========================================
+      console.log('📡 Triggering PREP accessibility analysis...');
+      
+      try {
+        const PREP_BASE_URL = 'https://api-pdfservice.continualengine.com';
+        const PREP_API_ID = process.env.PREP_API_ID;
+        const PREP_APP_KEY = process.env.PREP_APP_KEY;
+
+        if (PREP_API_ID && PREP_APP_KEY) {
+          console.log('📡 Calling PREP accessibility-check-init API...');
+          console.log('📄 File path:', filePath);
+          
+          // Download the PDF from Supabase to upload to PREP
+          const { data: fileData, error: downloadError } = await supabaseAdmin.storage
+            .from(STORAGE_BUCKET)
+            .download(filePath);
+
+          if (downloadError || !fileData) {
+            console.error('❌ Failed to download file for PREP:', downloadError);
+            console.warn('⚠️ Skipping PREP analysis');
+          } else {
+            console.log('✅ File downloaded, size:', fileData.size, 'bytes');
+            
+            // Create FormData with the PDF file
+            const formData = new FormData();
+            formData.append('pdf1', fileData, file.name);
+            
+            console.log('📤 Uploading to PREP API...');
+
+            const prepResponse = await fetch(
+              `${PREP_BASE_URL}/pdf-content/pdf/accessibility-check-init/`,
+              {
+                method: 'POST',
+                headers: {
+                  'api-id': PREP_API_ID,
+                  'app-key': PREP_APP_KEY,
+                  // Don't set Content-Type, let FormData set it with boundary
+                },
+                body: formData,
+              }
+            );
+
+            console.log('📊 PREP API response status:', prepResponse.status);
+
+            if (prepResponse.ok) {
+              const prepData = await prepResponse.json();
+              console.log('✅ PREP API response:', JSON.stringify(prepData, null, 2));
+              
+              const sourceId = prepData.source_id;
+              
+              if (sourceId) {
+                console.log('✅ PREP Analysis started with source ID:', sourceId);
+                
+                // Update database with source ID and status
+                await db
+                  .update(pdfs)
+                  .set({
+                    prepSourceId: String(sourceId),
+                    analysisStatus: 'in-progress',
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(pdfs.id, newPdf.id));
+                
+                console.log('💾 Database updated with PREP source ID');
+              } else {
+                console.warn('⚠️ No source_id in PREP response:', prepData);
+              }
+            } else {
+              const errorText = await prepResponse.text();
+              console.warn('⚠️ PREP API error:', prepResponse.status, errorText);
+            }
+          }
+        } else {
+          console.warn('⚠️ PREP API credentials not configured');
+        }
+      } catch (analysisError) {
+        // Don't fail the upload if analysis fails
+        console.error('⚠️ Analysis trigger error (non-blocking):', analysisError);
+      }
+
+      // ========================================
+      // STEP 10: RETURN SUCCESS RESPONSE
       // ========================================
       return NextResponse.json(
         {
@@ -277,8 +363,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
-// ==========================================
-// HELPER: Import missing functions
-// ==========================================
-import { eq, desc } from 'drizzle-orm';

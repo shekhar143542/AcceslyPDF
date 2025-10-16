@@ -34,6 +34,37 @@ export default function DashboardPage() {
     }
   }, [isLoaded, isSignedIn, router]);
 
+  // Listen for score updates from other tabs/windows
+  useEffect(() => {
+    const handleScoreUpdate = () => {
+      console.log('🔔 Score update detected, refetching PDFs...');
+      handleRefetch();
+    };
+
+    // Listen for custom event
+    window.addEventListener('pdfScoreUpdated', handleScoreUpdate);
+
+    // Also listen for window focus to catch updates from other tabs
+    const handleFocus = () => {
+      const lastUpdate = localStorage.getItem('pdfScoreUpdated');
+      if (lastUpdate) {
+        const timeSinceUpdate = Date.now() - parseInt(lastUpdate);
+        // Refetch if update was in last 30 seconds
+        if (timeSinceUpdate < 30000) {
+          console.log('🔔 Recent score update detected on focus, refetching...');
+          handleRefetch();
+        }
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('pdfScoreUpdated', handleScoreUpdate);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
+
   // Fetch PDFs from API
   useEffect(() => {
     const fetchPDFs = async () => {
@@ -63,6 +94,16 @@ export default function DashboardPage() {
     };
 
     fetchPDFs();
+
+    // Set up periodic refresh every 30 seconds to catch any updates
+    const intervalId = setInterval(() => {
+      if (isSignedIn && !isLoading) {
+        console.log('🔄 Auto-refreshing PDF list...');
+        fetchPDFs();
+      }
+    }, 30000);
+
+    return () => clearInterval(intervalId);
   }, [isSignedIn, refetchTrigger]); // Re-fetch when refetchTrigger changes
 
   // Function to trigger refetch

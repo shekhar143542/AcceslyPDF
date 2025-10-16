@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "build": "node scripts/copy-pdf-worker.js && next build --turbopack",
+    "dev": "next dev",
+    "build": "node scripts/copy-pdf-worker.js && next build",
     "start": "next start",
     "postinstall": "node scripts/copy-pdf-worker.js"
   },
@@ -16,9 +16,14 @@
     "drizzle-orm": "^0.44.6",
     "lucide-react": "^0.545.0",
     "next": "15.5.5",
+    "openai": "^6.3.0",
+    "pdf-lib": "^1.17.1",
+    "pdf-parse": "^2.3.12",
     "pdfjs-dist": "^5.4.296",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "react-pdf": "^10.2.0",
+    "sharp": "^0.34.4",
     "sonner": "^2.0.7",
     "uuid": "^13.0.0"
   },

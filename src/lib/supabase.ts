@@ -117,17 +117,58 @@ export async function uploadFileToSupabase(
       return { publicUrl: null, error: error.message };
     }
 
+    console.log('✅ File uploaded, generating public URL...');
+
     // Get public URL for the uploaded file
     const { data: urlData } = supabaseAdmin.storage
       .from(STORAGE_BUCKET)
       .getPublicUrl(filePath);
 
-    return { publicUrl: urlData.publicUrl, error: null };
+    const publicUrl = urlData.publicUrl;
+    
+    // Validate URL format
+    if (!publicUrl || !publicUrl.startsWith('http')) {
+      console.error('❌ Invalid public URL generated:', publicUrl);
+      return { publicUrl: null, error: 'Failed to generate valid public URL' };
+    }
+
+    console.log('✅ Public URL generated:', publicUrl);
+    return { publicUrl, error: null };
   } catch (error) {
     console.error('❌ Unexpected error during file upload:', error);
     return { 
       publicUrl: null, 
       error: error instanceof Error ? error.message : 'Unknown upload error' 
+    };
+  }
+}
+
+/**
+ * Get a signed URL for a file (works for private buckets)
+ * The signed URL will be valid for the specified duration
+ * 
+ * @param filePath - The path of the file
+ * @param expiresIn - Expiration time in seconds (default: 1 hour)
+ * @returns Object with signedUrl and error
+ */
+export async function getSignedUrl(filePath: string, expiresIn: number = 3600) {
+  try {
+    const { data, error } = await supabaseAdmin.storage
+      .from(STORAGE_BUCKET)
+      .createSignedUrl(filePath, expiresIn);
+
+    if (error) {
+      console.error('❌ Error creating signed URL:', error);
+      return { signedUrl: null, error: error.message };
+    }
+
+    console.log('✅ Signed URL created (expires in', expiresIn, 'seconds)');
+    return { signedUrl: data.signedUrl, error: null };
+  } catch (error) {
+    console.error('❌ Unexpected error creating signed URL:', error);
+    return {
+      signedUrl: null,
+      error: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }

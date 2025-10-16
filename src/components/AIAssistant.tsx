@@ -6,9 +6,10 @@ import ReportTab from './ReportTab';
 
 interface AIAssistantProps {
   documentName?: string;
+  pdfId: string;
 }
 
-export default function AIAssistant({ documentName }: AIAssistantProps) {
+export default function AIAssistant({ documentName, pdfId }: AIAssistantProps) {
   const [activeTab, setActiveTab] = useState<'chat' | 'report'>('chat');
 
   return (
@@ -51,7 +52,7 @@ export default function AIAssistant({ documentName }: AIAssistantProps) {
 
       {/* Tab Content */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'chat' ? <ChatTab /> : <ReportTab />}
+        {activeTab === 'chat' ? <ChatTab /> : <ReportTab pdfId={pdfId} />}
       </div>
     </div>
   );

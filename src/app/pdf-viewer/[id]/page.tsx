@@ -223,7 +223,7 @@ export default function PDFViewerPage() {
         </div>
 
         {/* AI Assistant Panel */}
-        <AIAssistant documentName={documentName} />
+        <AIAssistant documentName={documentName} pdfId={params.id as string} />
       </div>
     </div>
   );
