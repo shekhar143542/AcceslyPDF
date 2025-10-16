@@ -139,42 +139,32 @@ export async function POST(request: NextRequest) {
       wasActuallyFixed = true;
       console.log('✅ [FIX-ISSUE] PDF modification successful');
       
-      // Upload the modified PDF back to Supabase
-      const timestamp = Date.now();
-      const newFileName = pdf.fileName.replace('.pdf', `_fixed_${timestamp}.pdf`);
-      const newFilePath = `${userId}/${newFileName}`;
+      // Upload the modified PDF back to Supabase - REPLACE the existing file
+      console.log('📤 [FIX-ISSUE] Uploading modified PDF to replace existing file...');
       
       const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
         .from(STORAGE_BUCKET)
-        .upload(newFilePath, modifiedPdfBuffer, {
+        .update(filePath, modifiedPdfBuffer, {
           contentType: 'application/pdf',
           upsert: false,
         });
       
       if (uploadError) {
-        console.error('❌ [FIX-ISSUE] Failed to upload fixed PDF:', uploadError);
+        console.error('❌ [FIX-ISSUE] Failed to update PDF:', uploadError);
         // Continue anyway - we'll mark as fixed in DB
       } else {
-        console.log('✅ [FIX-ISSUE] Fixed PDF uploaded:', newFilePath);
+        console.log('✅ [FIX-ISSUE] PDF updated successfully in storage');
         
-        // Get the public URL for the new file
-        const { data: urlData } = supabaseAdmin.storage
-          .from(STORAGE_BUCKET)
-          .getPublicUrl(newFilePath);
+        // No need to update fileUrl in database since we're replacing the same file
+        // Just update the timestamp
+        await db
+          .update(pdfs)
+          .set({
+            updatedAt: new Date(),
+          })
+          .where(eq(pdfs.id, pdfId));
         
-        if (urlData?.publicUrl) {
-          // Update the PDF URL to point to the fixed version
-          await db
-            .update(pdfs)
-            .set({
-              fileUrl: urlData.publicUrl,
-              fileName: newFileName,
-              updatedAt: new Date(),
-            })
-            .where(eq(pdfs.id, pdfId));
-          
-          console.log('✅ [FIX-ISSUE] Database updated with new PDF URL');
-        }
+        console.log('✅ [FIX-ISSUE] Database updated with new timestamp');
       }
       
     } catch (error) {

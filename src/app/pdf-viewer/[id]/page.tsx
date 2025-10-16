@@ -47,6 +47,44 @@ export default function PDFViewerPage() {
     if (params.id) {
       fetchPDFData();
     }
+
+    // Listen for PDF update events
+    const handlePDFUpdate = (event: CustomEvent) => {
+      const { pdfId: updatedPdfId, timestamp } = event.detail;
+      console.log('🔄 PDF updated event received:', updatedPdfId, 'at', timestamp);
+      
+      // If this is the same PDF, refetch the data
+      if (updatedPdfId === params.id) {
+        console.log('🔄 Reloading PDF data with cache-busting...');
+        setIsLoading(true);
+        
+        // Add small delay to ensure Supabase has updated the file
+        setTimeout(async () => {
+          try {
+            const response = await fetch(`/api/pdf/${params.id}`);
+            const result = await response.json();
+
+            if (result.success && result.data) {
+              // Add cache-busting parameter to force reload
+              const newFileUrl = `${result.data.fileUrl}?t=${timestamp}`;
+              setFileUrl(newFileUrl);
+              setDocumentName(result.data.fileName);
+              console.log('✅ PDF data reloaded:', result.data.fileName);
+            }
+          } catch (error) {
+            console.error('❌ Error reloading PDF:', error);
+          } finally {
+            setIsLoading(false);
+          }
+        }, 1000); // Wait 1 second for Supabase to update
+      }
+    };
+
+    window.addEventListener('pdfUpdated', handlePDFUpdate as EventListener);
+
+    return () => {
+      window.removeEventListener('pdfUpdated', handlePDFUpdate as EventListener);
+    };
   }, [params.id, router]);
 
   const handleZoomIn = () => {
@@ -71,9 +109,44 @@ export default function PDFViewerPage() {
     }
   };
 
-  const handleDownload = () => {
-    if (fileUrl) {
-      window.open(fileUrl, '_blank');
+  const handleDownload = async () => {
+    if (!fileUrl || !documentName) {
+      alert('PDF not loaded yet. Please wait...');
+      return;
+    }
+
+    try {
+      console.log('📥 Downloading PDF:', documentName);
+      console.log('📄 File URL:', fileUrl);
+
+      // Fetch the PDF file
+      const response = await fetch(fileUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch PDF: ${response.status}`);
+      }
+
+      // Get the blob
+      const blob = await response.blob();
+      console.log('✅ PDF blob downloaded, size:', blob.size);
+
+      // Create a temporary download link
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = documentName; // Use the actual filename
+      
+      // Append to body, click, and remove
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Clean up the URL object
+      window.URL.revokeObjectURL(url);
+
+      console.log('✅ Download initiated:', documentName);
+    } catch (error) {
+      console.error('❌ Download failed:', error);
+      alert('Failed to download PDF. Please try again.');
     }
   };
 

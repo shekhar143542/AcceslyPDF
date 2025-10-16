@@ -33,6 +33,7 @@ export default function ReportTab({ pdfId }: ReportTabProps) {
   const [isAnalyzingContrast, setIsAnalyzingContrast] = useState(false);
   const [isFixingAll, setIsFixingAll] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isAutoFixing, setIsAutoFixing] = useState(false);
 
   useEffect(() => {
     let pollInterval: NodeJS.Timeout | null = null;
@@ -134,9 +135,22 @@ export default function ReportTab({ pdfId }: ReportTabProps) {
         setIssues(data.issues);
         console.log('✅ Issue fixed! New score:', data.newScore);
         
+        // Show success message with details
+        const fixedMessage = `✅ Fixed: ${issueType}\n\n📝 Changes applied to PDF\n\n🔄 Reloading PDF viewer...`;
+        alert(fixedMessage);
+        
         // Notify dashboard to refetch (trigger update)
         localStorage.setItem('pdfScoreUpdated', Date.now().toString());
         window.dispatchEvent(new Event('pdfScoreUpdated'));
+        
+        // Trigger PDF reload by dispatching a custom event
+        // Add cache-busting timestamp to force reload
+        const timestamp = Date.now();
+        window.dispatchEvent(new CustomEvent('pdfUpdated', { 
+          detail: { pdfId, timestamp } 
+        }));
+        
+        console.log('✅ [FIX-ISSUE] Dispatched pdfUpdated event');
       } else {
         console.error('Failed to fix issue:', data.error);
         alert(`Failed to fix issue: ${data.error}`);
@@ -208,9 +222,9 @@ export default function ReportTab({ pdfId }: ReportTabProps) {
 
       // Final summary
       if (fixedCount === unfixedIssues.length) {
-        alert(`✅ Successfully fixed all ${fixedCount} issues!`);
+        alert(`✅ Successfully fixed all ${fixedCount} issues!\n\n🔄 Reloading PDF viewer...`);
       } else if (fixedCount > 0) {
-        alert(`✅ Fixed ${fixedCount} issues\n❌ Failed ${failedCount} issues`);
+        alert(`✅ Fixed ${fixedCount} issues\n❌ Failed ${failedCount} issues\n\n🔄 Reloading PDF viewer...`);
       } else {
         alert(`❌ Failed to fix any issues. Please try again.`);
       }
@@ -218,12 +232,72 @@ export default function ReportTab({ pdfId }: ReportTabProps) {
       // Notify dashboard to refetch
       localStorage.setItem('pdfScoreUpdated', Date.now().toString());
       window.dispatchEvent(new Event('pdfScoreUpdated'));
+      
+      // Trigger PDF viewer reload (not full page)
+      if (fixedCount > 0) {
+        const timestamp = Date.now();
+        window.dispatchEvent(new CustomEvent('pdfUpdated', { 
+          detail: { pdfId, timestamp } 
+        }));
+        console.log('✅ [FIX-ALL] Dispatched pdfUpdated event');
+      }
 
     } catch (err) {
       console.error('Error fixing all issues:', err);
       alert('Failed to fix all issues. Please try again.');
     } finally {
       setIsFixingAll(false);
+    }
+  };
+
+  const handleAutoFix = async () => {
+    if (!confirm(
+      '🚀 Auto-Fix with PREP AutoTag API?\n\n' +
+      'This will:\n' +
+      '• Automatically add tags and structure to your PDF\n' +
+      '• Fix many accessibility issues at once\n' +
+      '• Create a new version of your PDF\n' +
+      '• Re-analyze the fixed PDF\n\n' +
+      'This may take 1-3 minutes. Continue?'
+    )) {
+      return;
+    }
+
+    setIsAutoFixing(true);
+
+    try {
+      const response = await fetch('/api/checker/auto-fix', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ pdfId }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        alert(
+          `✅ Auto-Fix Complete!\n\n` +
+          `• New PDF: ${data.newFileName}\n` +
+          `• Original size: ${(data.originalSize / 1024).toFixed(1)} KB\n` +
+          `• Fixed size: ${(data.fixedSize / 1024).toFixed(1)} KB\n` +
+          `• Size difference: ${(data.sizeDifference / 1024).toFixed(1)} KB\n\n` +
+          `Re-analyzing for remaining issues...\n\n` +
+          `Page will reload in 2 seconds.`
+        );
+        setTimeout(() => {
+          window.location.reload();
+        }, 2000);
+      } else {
+        console.error('❌ Auto-fix failed:', data.error);
+        alert(`❌ Auto-fix failed:\n\n${data.error}\n\nPlease try again or use individual "Fix Issue" buttons.`);
+      }
+    } catch (err) {
+      console.error('❌ Auto-fix error:', err);
+      alert('Failed to auto-fix PDF. Please check console for details.');
+    } finally {
+      setIsAutoFixing(false);
     }
   };
 
@@ -490,23 +564,42 @@ export default function ReportTab({ pdfId }: ReportTabProps) {
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-gray-900 dark:text-white font-semibold text-base">Accessibility Score</h3>
               {unfixedIssues.length > 0 && (
-                <button
-                  onClick={fixAllIssues}
-                  disabled={isFixingAll}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
-                >
-                  {isFixingAll ? (
-                    <>
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                      Fixing {unfixedIssues.length} Issues...
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" />
-                      Fix All Issues ({unfixedIssues.length})
-                    </>
-                  )}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleAutoFix}
+                    disabled={isAutoFixing}
+                    className="px-4 py-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition-all flex items-center justify-center gap-2 shadow-md"
+                  >
+                    {isAutoFixing ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Auto-Fixing...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Auto-Fix (AI)
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={fixAllIssues}
+                    disabled={isFixingAll}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2"
+                  >
+                    {isFixingAll ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        Fixing {unfixedIssues.length} Issues...
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Fix All Issues ({unfixedIssues.length})
+                      </>
+                    )}
+                  </button>
+                </div>
               )}
             </div>
             <div className="flex items-center gap-3 mb-3">

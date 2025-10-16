@@ -8,7 +8,15 @@ AcceslyPDF is a modern web application that analyzes PDF documents for accessibi
 
 ## ✨ Key Features
 
-### **Phase 3 - AI-Powered Features** 🤖 NEW!
+### **🎤 Voice-to-Text (NEW!)** 
+- 🎙️ **Voice Commands** - Say "start" and "stop" for hands-free operation
+- 🎯 **Auto-Stop on Silence** - Automatically stops recording after 1.5s of silence
+- 🤖 **OpenAI Whisper** - Industry-leading speech-to-text accuracy
+- 🌍 **Multi-Language Support** - Works in multiple languages
+- ♿ **Accessibility First** - Perfect for users with motor impairments
+- 📱 **Cross-Platform** - Works on desktop and mobile browsers
+
+### **Phase 3 - AI-Powered Features** 🤖
 - 🤖 **AI Alt Text Generation** - GPT-4 Vision creates descriptive image descriptions
 - 🎨 **Color Contrast Analysis** - WCAG 2.1 AA/AAA compliance checking
 - ⚡ **Smart Automation** - 95%+ issue resolution rate
@@ -48,6 +56,7 @@ AcceslyPDF is a modern web application that analyzes PDF documents for accessibi
 - Supabase account (storage)
 - Neon/PostgreSQL database
 - PREP API credentials
+- **OpenAI API key** (for voice-to-text) - [Get one here](https://platform.openai.com/api-keys)
 - OpenAI API key (for AI features)
 
 ### **Installation**
@@ -79,6 +88,8 @@ Open [http://localhost:3001](http://localhost:3001) in your browser.
 
 ### **User Guides**
 - 📘 [Quick Start Guide](./QUICK_START_FIXING.md) - How to use the PDF fixer
+- 🎤 [Voice-to-Text Setup](./SETUP_VOICE_TO_TEXT.md) - Setup voice features in 5 minutes 🆕
+- 🎙️ [Voice Feature Documentation](./VOICE_TO_TEXT.md) - Complete voice feature guide 🆕
 - 📗 [Phase 2 Overview](./PHASE_2_COMPLETE.md) - Feature summary
 
 ### **Technical Docs**
@@ -130,12 +141,14 @@ Click "Fix Issue" → PDF downloaded → Modifications applied → Fixed PDF upl
 - **PDF Processing**: PREP Document Checker API
 - **PDF Modification**: pdf-lib
 - **AI Services**: OpenAI GPT-4 Vision (Phase 3)
+- **Voice-to-Text**: OpenAI Whisper API 🎤 NEW!
 - **Image Processing**: Sharp (Phase 3)
 - **PDF Parsing**: pdf-parse (Phase 3)
 
 ### **External Services**
 - **PREP API**: Real accessibility analysis
-- **OpenAI**: AI-powered alt text generation (Phase 3)
+- **OpenAI GPT-4**: AI-powered alt text generation (Phase 3)
+- **OpenAI Whisper**: Voice transcription 🎤 NEW!
 - **Clerk**: User authentication
 - **Supabase**: File storage
 - **Neon**: PostgreSQL database
